@@ -263,7 +263,7 @@ const KW = {
 };
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition=null, recording=false, finalTx='', interimTx='', activeTab='voice', findClickCount=0;
+let recognition=null, recording=false, finalTx='', interimTx='', activeTab='voice', findClickCount=0, lastFinalIdx=-1;
 
 const $=id=>document.getElementById(id);
 const recordBtn=$('recordBtn'),recStatus=$('recStatus'),txBody=$('txBody'),
@@ -291,17 +291,26 @@ function initRec(){
   recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=3;
   recognition.lang=$('langSelect').value||'en-NG';
   recognition.onstart=()=>{
+    interimTx='';lastFinalIdx=-1;
     recording=true;recordBtn.classList.add('recording');
     recordBtn.innerHTML='<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
     recordBtn.setAttribute('aria-label','Stop recording');
     recStatus.textContent='Recording… speak now';recStatus.classList.add('live');
   };
-  recognition.onend=()=>{if(recording){try{recognition.start();}catch(e){}}};
+  recognition.onend=()=>{
+    if(recording){
+      interimTx='';renderTx();
+      setTimeout(()=>{if(recording){try{recognition.start();}catch(e){}}},150);
+    }
+  };
   recognition.onresult=e=>{
     let interim='';
     for(let i=e.resultIndex;i<e.results.length;i++){
-      if(e.results[i].isFinal)finalTx+=e.results[i][0].transcript+' ';
-      else interim+=e.results[i][0].transcript;
+      if(e.results[i].isFinal){
+        if(i>lastFinalIdx){finalTx+=e.results[i][0].transcript+' ';lastFinalIdx=i;}
+      } else {
+        interim+=e.results[i][0].transcript;
+      }
     }
     interimTx=interim;renderTx();
   };
