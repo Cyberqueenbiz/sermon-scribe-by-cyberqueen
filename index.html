@@ -135,6 +135,16 @@ body {
         <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1 17.94V22h2v-3.06A8 8 0 0 0 20 11h-2a6 6 0 0 1-12 0H4a8 8 0 0 0 7 7.94z"/></svg>
       </button>
       <p id="recStatus" class="record-status">Tap to begin recording</p>
+      <div style="margin-top:12px;text-align:center;">
+        <label for="langSelect" style="font-size:12px;color:var(--fg-3);font-weight:500;letter-spacing:0.05em;text-transform:uppercase;">Accent / Language</label>
+        <select id="langSelect" style="display:block;margin:6px auto 0;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--fg);font-family:inherit;font-size:14px;cursor:pointer;">
+          <option value="en-NG">English – Nigerian</option>
+          <option value="en-GB">English – British</option>
+          <option value="en-US" selected>English – American</option>
+          <option value="en-AU">English – Australian</option>
+          <option value="en-ZA">English – South African</option>
+        </select>
+      </div>
     </div>
     <div class="panel">
       <div class="panel-head">
@@ -253,7 +263,7 @@ const KW = {
 };
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition=null, recording=false, finalTx='', interimTx='', activeTab='voice';
+let recognition=null, recording=false, finalTx='', interimTx='', activeTab='voice', findClickCount=0;
 
 const $=id=>document.getElementById(id);
 const recordBtn=$('recordBtn'),recStatus=$('recStatus'),txBody=$('txBody'),
@@ -278,7 +288,8 @@ else{initRec();}
 
 function initRec(){
   recognition=new SR();
-  recognition.continuous=true;recognition.interimResults=true;recognition.lang='en-US';
+  recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=3;
+  recognition.lang=$('langSelect').value||'en-NG';
   recognition.onstart=()=>{
     recording=true;recordBtn.classList.add('recording');
     recordBtn.innerHTML='<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
@@ -309,6 +320,7 @@ function resetBtn(){
   recordBtn.setAttribute('aria-label','Start recording');
 }
 
+$('langSelect').addEventListener('change',()=>{if(recognition){recognition.lang=$('langSelect').value;if(recording){try{recognition.stop();}catch(e){}setTimeout(()=>{try{recognition.start();}catch(e){}},200);}}});
 recordBtn.addEventListener('click',()=>{if(!SR)return;recording?stopRec():startRec();});
 function startRec(){try{recognition.start();}catch(e){}}
 function stopRec(){
@@ -334,6 +346,7 @@ function updateFindBtn(){
 }
 
 findBtn.addEventListener('click',()=>{
+  findClickCount++;
   const text=activeTab==='voice'?(finalTx+' '+interimTx).toLowerCase():typeArea.value.toLowerCase();
   const found=[],seen=new Set();
   for(const[topic,keywords]of Object.entries(KW)){
@@ -344,21 +357,26 @@ findBtn.addEventListener('click',()=>{
   topicsStrip.hidden=false;
   topicsStrip.innerHTML=topics.map(t=>`<span class="chip">${esc(t)}</span>`).join('');
   const usedRefs=new Set(),verses=[];
-  for(const topic of topics.slice(0,10)){
+  for(const topic of topics){
     const list=DB[topic];if(!list)continue;
-    for(const v of list.slice(0,2)){
+    const startIdx=((findClickCount-1)*2)%list.length;
+    for(let i=0;i<list.length;i++){
+      const v=list[(startIdx+i)%list.length];
       if(!usedRefs.has(v.ref)){usedRefs.add(v.ref);verses.push({...v,topic});}
-      if(verses.length>=12)break;
+      if(verses.length>=5)break;
     }
-    if(verses.length>=12)break;
+    if(verses.length>=5)break;
   }
   scripList.innerHTML=verses.map(v=>`<div class="scripture-card"><div class="s-ref">${esc(v.ref)}</div><div class="s-text">${esc(v.text)}</div><div class="s-topic">${esc(v.topic)}</div></div>`).join('');
-  scripPanel.hidden=false;scripPanel.scrollIntoView({behavior:'smooth',block:'start'});
+  scripPanel.hidden=false;
+  scripList.style.opacity='0';setTimeout(()=>{scripList.style.transition='opacity 0.35s';scripList.style.opacity='1';},30);
+  scripPanel.scrollIntoView({behavior:'smooth',block:'start'});
+  showToast(`${verses.length} scripture${verses.length!==1?'s':''} found — click again for more`);
 });
 
 $('copyTxBtn').addEventListener('click',()=>copy(finalTx.trim()||'No transcript yet.'));
 $('clearBtn').addEventListener('click',()=>{
-  if(recording)stopRec();finalTx='';interimTx='';renderTx();
+  if(recording)stopRec();finalTx='';interimTx='';findClickCount=0;renderTx();
   scripPanel.hidden=true;recStatus.textContent='Tap to begin recording';recStatus.classList.remove('live');
 });
 $('copyScripBtn').addEventListener('click',()=>{
