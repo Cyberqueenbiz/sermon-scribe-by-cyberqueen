@@ -349,9 +349,10 @@ async function listModels(){
     const d=await r.json();
     const names=(d.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''));
     const ver=n=>{const m=n.match(/gemini-(\d+(?:\.\d+)?)/);return m?parseFloat(m[1]):0;};
-    const flash=names.filter(n=>/flash/.test(n)&&!/(lite|image|tts|live|audio|thinking|exp|preview|robotics|computer)/.test(n)).sort((a,b)=>ver(b)-ver(a));
+    const lite=n=>/lite/.test(n)?0:1;
+    const flash=names.filter(n=>/flash/.test(n)&&!/(image|tts|live|audio|thinking|exp|preview|robotics|computer)/.test(n)).sort((a,b)=>lite(a)-lite(b)||ver(b)-ver(a));
     const out=names.includes('gemini-flash-latest')?['gemini-flash-latest']:[];
-    return out.concat(flash).slice(0,4);
+    return flash.concat(out).slice(0,4);
   }catch(e){return [];}
 }
 async function callGemini(prompt){
@@ -359,14 +360,19 @@ async function callGemini(prompt){
   if(!candidates.length)candidates=['gemini-flash-latest','gemini-2.5-flash'];
   let res=null;
   for(const model of candidates){
-    res=await fetch(`${GEM}models/${model}:generateContent?key=${geminiKey}`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{parts:[{text:prompt}]}],
-        generationConfig:{temperature:0.2,maxOutputTokens:4096}
-      })
-    });
+    const cfg={temperature:0.2,maxOutputTokens:2048};
+    if(/2\.5/.test(model))cfg.thinkingConfig={thinkingBudget:0};
+    const ctl=new AbortController();
+    const timer=setTimeout(()=>ctl.abort(),20000);
+    try{
+      res=await fetch(`${GEM}models/${model}:generateContent?key=${geminiKey}`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        signal:ctl.signal,
+        body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:cfg})
+      });
+    }catch(e){clearTimeout(timer);res=null;continue;}
+    clearTimeout(timer);
     if(res.ok){modelCache=model;return res;}
     if(![404,429,503].includes(res.status))break;
   }
@@ -409,6 +415,7 @@ Format (exactly):
 Return exactly 5 objects in the array.`;
 
     const res = await callGemini(prompt);
+    if(!res){showToast('AI took too long — tap Find again');return;}
 
     if(!res.ok){
       const err=await res.json().catch(()=>({}));
